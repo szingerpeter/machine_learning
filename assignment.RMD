@@ -1,0 +1,131 @@
+---
+title: Predicting activity type
+output: 
+  html_document:
+    keep_md: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+### Data loading, processing and explaration
+Credit goes to: http://groupware.les.inf.puc-rio.br/har for the data.
+
+First we load the necessary libraries.
+
+```{r libraries, results = 'hide', message = FALSE, echo = FALSE}
+require(ggplot2)
+require(dplyr)
+require(caret)
+require(randomForest)
+```
+
+Then, we download and load the data into RStudio and check the date.
+
+```{r loading data, results = 'hide'}
+url = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+download.file(url, destfile = "training.csv")
+url = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(url, destfile = "test.csv")
+training = read.csv("training.csv")
+test = read.csv("test.csv")
+Sys.Date() #2016-08-01
+```
+
+Let us see the dimensions of the training set and the first 5 observations.
+
+```{r dimensions, results = 'hide'}
+dim(training) ## [1] 19622   160
+head(training,5)
+```
+
+This dataset has a several possible predictors. Eventually 160 variables seems a bit too much, so we need to be careful to avoid overfitting our training set.
+
+Let us see the proportion of NA values for each column, so hopefully we can get rid of several variables.
+
+```{r proportion NA}
+prop = sapply(training, function(x) sum(is.na(x))/length(x))
+prop[order(prop, decreasing = TRUE)[1:3]]
+```
+
+As you can see for specific variables, there is a really huge number of missing values (sometimes even over 90% of the observations are missing), so we will exclude variables, which have a higher proportion of NA values than 40%. Then we look at the dimensions of the dataset and the first 5 observations.
+
+```{r exlude NA, results = 'hide'}
+training = training[,-which(prop>0.4)]
+dim(training) ## [1] 19622    93
+head(training, 5)
+```
+
+You can see that there are columns, where even though there are no NA values, there is no observation value either.
+
+Let us see the proportion of missing values (not NA) for each column.
+
+```{r proportion missing}
+prop = sapply(training, function(x) sum(x=="")/length(x))
+prop[order(prop, decreasing = TRUE)[1:3]]
+```
+
+As you can see for specific variables, there is a really huge number of missing values (sometimes even over 90% of the observations are missing), so we will exclude variables, which have a higher proportion of missing values than 40%. Then we look at the dimensions of the dataset and the first 5 observations.
+
+```{r exlude missing, results = 'hide'}
+training = training[,-which(prop>0.4)]
+dim(training) ## [1] 19622    60
+head(training, 5)
+```
+
+Looking at the data, we can see that there are several measures, which are used to identify the user such as username, timestamp. Since we are trying to build a model based on quantitative measueres such as total acceleration, we will exclude these non-necessary variables.
+
+```{r exclude non-necessary}
+training = training %>% dplyr::select(-(1:7))
+```
+
+We were able to reduce the number of possible predictors by more than 100, what is a quite good start.
+
+### Analysis
+
+We start our analysis by creating a training and a validation datasets.
+
+```{r splitting training set}
+set.seed(1)
+intrain = createDataPartition(y=training$classe, p=3/4, list=FALSE)
+train_set <- training[intrain,]
+validation_set <- training[-intrain,]
+```
+
+First we are developing a model via the Random forest method and take a look at the 10 most influential predictors.
+
+```{r randomforest_all}
+rfFit1 = randomForest(classe ~ ., data=train_set )
+rfFit1$importance[order(rfFit1$importance, decreasing = T),][1:10]
+```
+
+Let us see how good our model works on the validation set.
+
+```{r prediction_all}
+predicted = predict(rfFit1, validation_set)
+confusionMatrix(predicted, validation_set$classe)
+rfFit1
+```
+
+It looks quite good, however let us try decreasing the number of predictors, taking only those predictors, which importance score is over 300.
+
+```{r randomforest_over300}
+colnames = names(rfFit1$importance[rfFit1$importance>300,])
+colnames = append(colnames, "classe")
+train_set = train_set[,colnames]
+rfFit2 = randomForest(classe ~ ., data = train_set)
+```
+
+Let us see how good our model is.
+
+```{r prediction_over300}
+predicted = predict(rfFit2, validation_set)
+confusionMatrix(predicted, validation_set$classe)
+rfFit2
+```
+
+Even though, we reduced the number of predictors significantly, its accuracy did not change, so for its simplicity, we will use it!
+
+### Conclusion
+
+Even though the 2nd model is a bit less accurate than the 1st model, we will prefer using the 2nd one, since it is less complicated and uses less predictors than the 1st one. Moreover, it is more likely we are avoiding the problem of overfitting with reducing the number of predictors.
